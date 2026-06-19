@@ -1,4 +1,4 @@
-all: build ./build/vector_add ./build/grayscale ./build/blur
+all: build ./build/vector_add ./build/grayscale ./build/blur ./build/matmul
 
 build:
 	@mkdir -p build
@@ -11,9 +11,12 @@ build:
 
 ./build/blur:
 	nvcc ./blur/blur.cu -o ./build/blur -g
-	./build/blur
-	open ./build/blur_cpu_dog.jpg
+	# ./build/blur
+	# open ./build/blur_cpu_dog.jpg
 
+./build/matmul:
+	nvcc ./matmul/matmul.cu -o ./build/matmul -g
+	./build/matmul
 
 clean:
 	rm -rf build
