@@ -1,4 +1,4 @@
-all: build ./build/vector_add ./build/grayscale ./build/blur ./build/matmul
+all: build ./build/vector_add ./build/grayscale ./build/blur ./build/matmul ./build/sync ./build/transpose
 
 build:
 	@mkdir -p build
@@ -16,7 +16,13 @@ build:
 
 ./build/matmul:
 	nvcc ./matmul/matmul.cu -o ./build/matmul -g
-	./build/matmul
+	# ./build/matmul
+
+./build/sync: ./sync/sync.cu
+	nvcc ./sync/sync.cu -o ./build/sync
+
+./build/transpose: ./transpose/transpose.cu
+	nvcc ./transpose/transpose.cu -o ./build/transpose
 
 clean:
 	rm -rf build
