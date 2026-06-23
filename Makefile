@@ -1,4 +1,4 @@
-all: build ./build/vector_add ./build/grayscale ./build/blur ./build/matmul ./build/sync ./build/transpose
+all: build ./build/vector_add ./build/grayscale ./build/blur ./build/matmul ./build/transpose
 
 build:
 	@mkdir -p build
@@ -14,12 +14,9 @@ build:
 	# ./build/blur
 	# open ./build/blur_cpu_dog.jpg
 
-./build/matmul:
+./build/matmul: ./matmul/matmul.cu
 	nvcc ./matmul/matmul.cu -o ./build/matmul -g
 	# ./build/matmul
-
-./build/sync: ./sync/sync.cu
-	nvcc ./sync/sync.cu -o ./build/sync
 
 ./build/transpose: ./transpose/transpose.cu
 	nvcc ./transpose/transpose.cu -o ./build/transpose

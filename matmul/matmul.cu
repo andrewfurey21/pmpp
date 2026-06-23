@@ -3,7 +3,6 @@
 #include <cassert>
 #include <driver_types.h>
 #include <iostream>
-#include <iomanip>
 
 using u64 = unsigned long long;
 using f32 = float;
@@ -46,6 +45,41 @@ __global__ void naive_matmul_gpu_kernel(u64 *output, u64 *a, u64 *b, u64 a_rows,
   }
 }
 
+  // tiled. global + shared mem coalescing. optional thread-coarsening.
+#define TILE_WIDTH 32
+#define THREAD_COARSEN_FACTOR 1
+__global__ void tiled_matmul_gpu_kernel(u64 *output, u64 *a, u64 *b, u64 a_rows, u64 a_cols, u64 b_rows, u64 b_cols) {
+  assert(TILE_WIDTH == blockDim.x && TILE_WIDTH == blockDim.y); // TODO: get rid of this
+  assert(a_cols == b_rows);
+
+  __shared__ u64 a_tile[TILE_WIDTH][TILE_WIDTH];
+  __shared__ u64 b_tile[TILE_WIDTH][TILE_WIDTH + 1]; // TODO: dynamic shared mem
+
+  const u64 output_row = threadIdx.y + blockIdx.y * blockDim.y;
+  const u64 output_col = threadIdx.x + blockIdx.x * blockDim.x;
+  const u64 output_index = output_col + output_row * b_cols;
+
+  if (output_row < a_rows && output_col < b_cols) {
+    u64 output_sum = 0;
+    for (u64 tile = 0; tile < a_cols / TILE_WIDTH; tile++) {
+      const u64 a_index = threadIdx.x + threadIdx.y * a_cols + tile * TILE_WIDTH + blockIdx.y * a_cols * TILE_WIDTH;
+      const u64 b_index = threadIdx.x + threadIdx.y * a_cols + tile * TILE_WIDTH * a_cols + blockIdx.x * TILE_WIDTH;
+
+      a_tile[threadIdx.y][threadIdx.x] = a[a_index];
+      b_tile[threadIdx.y][threadIdx.x] = b[b_index];
+
+      __syncthreads();
+
+      for (u64 tile_index = 0; tile_index < TILE_WIDTH; tile_index++) {
+        output_sum += a_tile[threadIdx.y][tile_index] * b_tile[tile_index][threadIdx.x];
+      }
+
+      __syncthreads();
+    }
+    output[output_index] = output_sum;
+  }
+}
+
 __host__ void naive_matmul_gpu(u64 *output, u64 *a, u64 *b, u64 a_rows, u64 a_cols, u64 b_rows, u64 b_cols) {
   assert(a_cols == b_rows);
   u64 *device_output, *device_a, *device_b;
@@ -72,27 +106,6 @@ __host__ void naive_matmul_gpu(u64 *output, u64 *a, u64 *b, u64 a_rows, u64 a_co
   cudaFree(device_b);
 }
 
-#define TILE_WIDTH 16
-#define TILE_HEIGHT 16
-__global__ void tiled_matmul_gpu_kernel(u64 *output, u64 *a, u64 *b, u64 a_rows, u64 a_cols, u64 b_rows, u64 b_cols) {
-
-  // NOTE: use dynamic instead.
-  __shared__ u64 a_tile[TILE_HEIGHT][TILE_WIDTH];
-  __shared__ u64 b_tile[TILE_HEIGHT][TILE_WIDTH];
-
-  u64 row = threadIdx.y + blockIdx.y * blockDim.y;
-  u64 col = threadIdx.x + blockIdx.x * blockDim.x;
-
-
-  if (row < a_rows && col < b_cols) {
-    u64 output_value = 0;
-    u64 output_index = col + row * b_cols;
-
-    // for loop, write to tiles, dot product into output_value, iterate.
-
-    output[output_index] = output_value;
-  }
-}
 
 __host__ void tiled_matmul_gpu(u64 *output, u64 *a, u64 *b, u64 a_rows, u64 a_cols, u64 b_rows, u64 b_cols) {
   assert(a_cols == b_rows);
@@ -160,11 +173,11 @@ int main() {
 
   // const u64 b_rows = 513;
   // const u64 b_cols = 10000;
-  const u64 a_rows = 10;
-  const u64 a_cols = 5;
+  const u64 a_rows = 64;
+  const u64 a_cols = 64;
 
-  const u64 b_rows = 5;
-  const u64 b_cols = 3;
+  const u64 b_rows = 64;
+  const u64 b_cols = 64;
 
   const u64 a_size_bytes = a_rows * a_cols * sizeof(u64);
   const u64 b_size_bytes = b_rows * b_cols * sizeof(u64);
@@ -190,6 +203,9 @@ int main() {
   verify(cpu, naive_gpu, a_rows, b_cols);
   verify(cpu, tiled_gpu, a_rows, b_cols);
   std::cout << "Matmul is correct.\n";
+
+  // print_matrix(cpu, a_rows, b_cols);
+  // print_matrix(tiled_gpu, a_rows, b_cols);
 
   free(cpu);
   free(tiled_gpu);
