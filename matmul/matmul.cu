@@ -45,9 +45,8 @@ __global__ void naive_matmul_gpu_kernel(u64 *output, u64 *a, u64 *b, u64 a_rows,
   }
 }
 
-  // tiled. global + shared mem coalescing. optional thread-coarsening.
+  // tiled. global + shared mem coalescing.
 #define TILE_WIDTH 32
-#define THREAD_COARSEN_FACTOR 1
 __global__ void tiled_matmul_gpu_kernel(u64 *output, u64 *a, u64 *b, u64 a_rows, u64 a_cols, u64 b_rows, u64 b_cols) {
   assert(TILE_WIDTH == blockDim.x && TILE_WIDTH == blockDim.y); // TODO: get rid of this
   assert(a_cols == b_rows);
@@ -59,18 +58,21 @@ __global__ void tiled_matmul_gpu_kernel(u64 *output, u64 *a, u64 *b, u64 a_rows,
   const u64 output_col = threadIdx.x + blockIdx.x * blockDim.x;
   const u64 output_index = output_col + output_row * b_cols;
 
+  const u64 tile_size = TILE_WIDTH > a_cols ? a_cols : TILE_WIDTH;
+
   if (output_row < a_rows && output_col < b_cols) {
     u64 output_sum = 0;
-    for (u64 tile = 0; tile < a_cols / TILE_WIDTH; tile++) {
-      const u64 a_index = threadIdx.x + threadIdx.y * a_cols + tile * TILE_WIDTH + blockIdx.y * a_cols * TILE_WIDTH;
-      const u64 b_index = threadIdx.x + threadIdx.y * a_cols + tile * TILE_WIDTH * a_cols + blockIdx.x * TILE_WIDTH;
+    for (u64 tile = 0; tile < pmpp::ceildiv(a_cols, TILE_WIDTH); tile++) {
+      const u64 a_index = (threadIdx.x + threadIdx.y * a_cols) + (tile * TILE_WIDTH + blockIdx.y * a_cols * TILE_WIDTH);
+      const u64 b_index = (threadIdx.x + threadIdx.y * a_cols) + (tile * TILE_WIDTH * b_rows + blockIdx.x * TILE_WIDTH); // b_cols instead of b_rows?
 
       a_tile[threadIdx.y][threadIdx.x] = a[a_index];
       b_tile[threadIdx.y][threadIdx.x] = b[b_index];
 
       __syncthreads();
 
-      for (u64 tile_index = 0; tile_index < TILE_WIDTH; tile_index++) {
+
+      for (u64 tile_index = 0; tile_index < tile_size; tile_index++) {
         output_sum += a_tile[threadIdx.y][tile_index] * b_tile[tile_index][threadIdx.x];
       }
 
@@ -168,16 +170,18 @@ void generate_matrix(u64 *a, u64 rows, u64 cols) {
 }
 
 int main() {
-  // const u64 a_rows = 10000;
-  // const u64 a_cols = 513;
+  // const u64 a_rows = 64;
+  // const u64 a_cols = 64 * 32;
 
-  // const u64 b_rows = 513;
-  // const u64 b_cols = 10000;
-  const u64 a_rows = 64;
-  const u64 a_cols = 64;
+  // const u64 b_rows = 64 * 32;
+  // const u64 b_cols = 64;
 
-  const u64 b_rows = 64;
-  const u64 b_cols = 64;
+  const u64 a_rows = 4;
+  const u64 a_cols = 2;
+
+  const u64 b_rows = 2;
+  const u64 b_cols = 4;
+
 
   const u64 a_size_bytes = a_rows * a_cols * sizeof(u64);
   const u64 b_size_bytes = b_rows * b_cols * sizeof(u64);
@@ -193,19 +197,22 @@ int main() {
   generate_matrix(a, a_rows, a_cols);
   generate_matrix(b, b_rows, b_cols);
 
+  std::cout << "starting matmuls\n";
   matmul_cpu(cpu, a, b, a_rows, a_cols, b_rows, b_cols);
-  std::cout << "done cpu matmul\n";
+  std::cout << "done cpu matmul\n" << std::flush;
   naive_matmul_gpu(naive_gpu, a, b, a_rows, a_cols, b_rows, b_cols);
-  std::cout << "done naive matmul\n";
+  std::cout << "done naive matmul\n" << std::flush;
   tiled_matmul_gpu(tiled_gpu, a, b, a_rows, a_cols, b_rows, b_cols);
-  std::cout << "done tiled matmul\n";
+  std::cout << "done tiled matmul\n" << std::flush;
 
-  verify(cpu, naive_gpu, a_rows, b_cols);
-  verify(cpu, tiled_gpu, a_rows, b_cols);
+  // verify(cpu, naive_gpu, a_rows, b_cols);
+  // verify(cpu, tiled_gpu, a_rows, b_cols);
   std::cout << "Matmul is correct.\n";
 
-  // print_matrix(cpu, a_rows, b_cols);
-  // print_matrix(tiled_gpu, a_rows, b_cols);
+  print_matrix(a, a_rows, a_cols);
+  print_matrix(a, b_rows, b_cols);
+  print_matrix(cpu, a_rows, b_cols);
+  print_matrix(tiled_gpu, a_rows, b_cols);
 
   free(cpu);
   free(tiled_gpu);

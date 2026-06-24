@@ -1,4 +1,4 @@
-all: build ./build/vector_add ./build/grayscale ./build/blur ./build/matmul ./build/transpose
+all: build ./build/vector_add ./build/grayscale ./build/blur ./build/matmul ./build/transpose ./build/conv
 
 build:
 	@mkdir -p build
@@ -15,11 +15,14 @@ build:
 	# open ./build/blur_cpu_dog.jpg
 
 ./build/matmul: ./matmul/matmul.cu
-	nvcc ./matmul/matmul.cu -o ./build/matmul -g
+	nvcc ./matmul/matmul.cu -o ./build/matmul -g -G -O0
 	# ./build/matmul
 
 ./build/transpose: ./transpose/transpose.cu
 	nvcc ./transpose/transpose.cu -o ./build/transpose
+
+./build/conv: ./convolution/convolution.cu
+	nvcc ./convolution/convolution.cu -o ./build/conv
 
 clean:
 	rm -rf build
